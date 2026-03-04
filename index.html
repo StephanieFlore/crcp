@@ -1,0 +1,112 @@
+<!doctype html>
+<meta charset="utf-8" />
+<body>
+<svg id="chart"></svg>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+const width = 900, height = 520, margin = {top: 20, right: 20, bottom: 50, left: 70};
+
+const svg = d3.select("#chart")
+  .attr("width", width)
+  .attr("height", height);
+
+const inner = svg.append("g")
+  .attr("transform", `translate(${margin.left},${margin.top})`);
+
+const iw = width - margin.left - margin.right;
+const ih = height - margin.top - margin.bottom;
+
+// --- Choose TWO columns from your CSV ---
+const COL_X = 'At what age do you expect to feel “successful”?';
+const COL_Y = 'How satisfied are you with your current progress toward success?';
+
+// --- Map survey categories -> numbers (edit if your wording differs) ---
+const ageMap = new Map([
+  ["Before 25", 22],
+  ["25–30", 27.5],
+  ["31–35", 33],
+  ["36–40", 38],
+  ["41+", 45]
+]);
+
+const satOrder = new Map([
+  ["Very dissatisfied", 1],
+  ["Dissatisfied", 2],
+  ["Neutral", 3],
+  ["Satisfied", 4],
+  ["Very satisfied", 5]
+]);
+
+d3.csv("data.csv").then(rows => {
+  // Convert rows to numeric points
+  const pts = rows
+    .map(d => {
+      const xRaw = d[COL_X]?.trim();
+      const yRaw = d[COL_Y]?.trim();
+      const x = ageMap.get(xRaw);
+      const y = satOrder.get(yRaw);
+      if (x == null || y == null) return null;
+      return {x, y};
+    })
+    .filter(Boolean);
+
+  // Scales
+  const x = d3.scaleLinear()
+    .domain(d3.extent(pts, d => d.x)).nice()
+    .range([0, iw]);
+
+  const y = d3.scaleLinear()
+    .domain(d3.extent(pts, d => d.y)).nice()
+    .range([ih, 0]);
+
+  // Convert to pixel-space points for contourDensity
+  // Add tiny jitter so identical categories don't overlap perfectly
+  const jitter = (a=0.8) => (Math.random() - 0.5) * a;
+
+  const pixelPts = pts.map(d => ({
+    px: x(d.x) + jitter(6),
+    py: y(d.y) + jitter(6)
+  }));
+
+  // Density contours
+  const contours = d3.contourDensity()
+    .x(d => d.px)
+    .y(d => d.py)
+    .size([iw, ih])
+    .bandwidth(30)      // smoothness; try 15–50
+    .thresholds(12)     // number of rings
+    (pixelPts);
+
+  // Draw filled contours
+  inner.append("g")
+    .attr("fill", "none")
+    .attr("stroke", "black")
+    .attr("stroke-width", 1)
+    .selectAll("path")
+    .data(contours)
+    .join("path")
+      .attr("d", d3.geoPath());
+
+  // Axes
+  inner.append("g")
+    .attr("transform", `translate(0,${ih})`)
+    .call(d3.axisBottom(x));
+
+  inner.append("g")
+    .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format("d")));
+
+  // Labels
+  svg.append("text")
+    .attr("x", margin.left + iw/2)
+    .attr("y", height - 10)
+    .attr("text-anchor", "middle")
+    .text("Expected age to feel successful (mapped to numbers)");
+
+  svg.append("text")
+    .attr("transform", `translate(18,${margin.top + ih/2}) rotate(-90)`)
+    .attr("text-anchor", "middle")
+    .text("Satisfaction (1–5)");
+});
+</script>
+</body>
